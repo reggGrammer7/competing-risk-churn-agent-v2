@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: churn-agent-backend
+    runtime: python
+    # "free" -- NOT "starter". Starter is Render's paid tier (~$7/month for
+    # an always-on instance) and requires a card on file; the free tier
+    # does not require payment details at all. Tradeoffs of free, both
+    # handled below rather than being surprises:
+    #   - Spins down after 15 min idle; first request after that takes
+    #     ~30-60s to wake back up. Not a bug -- warm it up with a /health
+    #     hit before a live demo.
+    #   - Limited RAM: not enough to safely import torch/sentence-
+    #     transformers (needed for the FAISS+embeddings retriever). This
+    #     import happening at all -- not just a failed download -- can get
+    #     the whole process OOM-killed (exit 137) before uvicorn ever binds
+    #     to $PORT, which the try/except fallback in backend/rag/
+    #     retriever.py CANNOT catch (the OS kills the process outright, not
+    #     a catchable Python exception). DISABLE_VECTOR_RETRIEVER below
+    #     skips that import entirely on this plan, going straight to the
+    #     TF-IDF retriever -- remove that env var (or set it to false) once
+    #     you upgrade to a plan with enough RAM to load real embeddings.
+    # Upgrade to "starter" later only if you want an always-on instance
+    # with no cold starts and are fine with the cost.
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn backend.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12"
+      - key: DISABLE_VECTOR_RETRIEVER
+        value: "true"
+      # Set exactly ONE of these in the Render dashboard (Environment tab) --
+      # never commit a real key here. Neither is required: the agent falls
+      # back to a template-based answer with zero API dependency if unset.
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+    healthCheckPath: /health
